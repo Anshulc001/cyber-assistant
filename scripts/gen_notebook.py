@@ -74,17 +74,25 @@ print(f'   Folders : {", ".join(_DIRS)}')
 # ─────────────────────────────────────────────────────────────────────────
 CELL2 = """\
 # ── Cell 2: Install All Dependencies ──────────────────────────────────────
-import subprocess, sys
+import os, subprocess, sys
 
-def _pip(*pkgs):
+def _pip(*pkgs, extra_flags=()):
     subprocess.check_call(
-        [sys.executable, '-m', 'pip', 'install', '-q', '--upgrade', *pkgs],
+        [sys.executable, '-m', 'pip', 'install', '-q', '--upgrade', *pkgs, *extra_flags],
         stdout=subprocess.DEVNULL,
     )
 
-print('⏳  Installing ML packages …')
-_pip('transformers>=4.40', 'accelerate>=0.27', 'bitsandbytes>=0.43',
-     'sentencepiece', 'safetensors')
+print('⏳  Installing llama-cpp-python with CUDA (compiles ~3 min) …')
+os.environ['CMAKE_ARGS']     = '-DGGML_CUDA=on'
+os.environ['FORCE_CMAKE']    = '1'
+subprocess.check_call([
+    sys.executable, '-m', 'pip', 'install',
+    'llama-cpp-python', '-q',
+    '--force-reinstall', '--no-cache-dir',
+])
+
+print('⏳  Installing HuggingFace hub (for GGUF download) …')
+_pip('huggingface_hub>=0.23', 'transformers>=4.40', 'sentencepiece', 'safetensors')
 
 print('⏳  Installing web server + RAG packages …')
 _pip('fastapi>=0.110', 'uvicorn[standard]>=0.29', 'python-multipart',
@@ -105,59 +113,64 @@ print('   cloudflared:', (r.stdout or r.stderr).strip())
 
 # ─────────────────────────────────────────────────────────────────────────
 CELL3 = """\
-# ── Cell 3: Load Qwythos-9B with 4-bit Quantisation ──────────────────────
-# Weights are cached to Google Drive — re-running skips the download.
+# ── Cell 3: Download & Load Qwythos-9B Q6_K GGUF ─────────────────────────
+# Uses llama-cpp-python — all layers offloaded to T4 GPU.
+# GGUF file is cached to Google Drive; subsequent runs skip the download.
 from pathlib import Path
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from huggingface_hub import hf_hub_download
+from llama_cpp import Llama
 
-DRIVE_ROOT  = Path('/content/drive/MyDrive/AI-Assistant')
-MODEL_NAME  = 'empero-ai/Qwythos-9B-Claude-Mythos-5-1M'
-MODEL_CACHE = str(DRIVE_ROOT / 'Models')
+DRIVE_ROOT   = Path('/content/drive/MyDrive/AI-Assistant')
+GGUF_REPO    = 'empero-ai/Qwythos-9B-Claude-Mythos-5-1M-GGUF'
+GGUF_FILE    = 'Qwythos-9B-Claude-Mythos-5-1M-MTP-Q6_K.gguf'
+MODEL_LABEL  = 'Qwythos-9B-Claude-Mythos-5-1M  (Q6_K GGUF, 7.09 GiB)'
+MODEL_PATH   = DRIVE_ROOT / 'Models' / GGUF_FILE
 
-if 'model' in globals() and globals()['model'] is not None:
-    print('ℹ️   Model already in memory — skipping reload.')
-    print(f'    Model : {MODEL_NAME}')
+if 'llm' in globals() and globals()['llm'] is not None:
+    print('Model already in memory — skipping reload.')
+    print(f'  {MODEL_LABEL}')
 else:
-    print(f'Loading {MODEL_NAME} …')
-    print(f'Cache  : {MODEL_CACHE}')
+    # ── 1. Download (skipped if cached on Drive) ──────────────────────────
+    if MODEL_PATH.exists():
+        print(f'Using cached GGUF: {MODEL_PATH}')
+    else:
+        print(f'Downloading {GGUF_FILE} from HuggingFace …')
+        print(f'  Repo : {GGUF_REPO}')
+        print(f'  Size : ~7.09 GiB  (be patient on first run)')
+        hf_hub_download(
+            repo_id=GGUF_REPO,
+            filename=GGUF_FILE,
+            local_dir=str(DRIVE_ROOT / 'Models'),
+            local_dir_use_symlinks=False,
+        )
+        print(f'  Saved to: {MODEL_PATH}')
+
+    # ── 2. Load into GPU via llama-cpp ────────────────────────────────────
     if torch.cuda.is_available():
-        print(f'GPU    : {torch.cuda.get_device_name(0)}')
+        print(f'GPU: {torch.cuda.get_device_name(0)}')
 
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type='nf4',
-        bnb_4bit_compute_dtype=torch.float16,
-        bnb_4bit_use_double_quant=True,
+    print('Loading model into VRAM …')
+    llm = Llama(
+        model_path=str(MODEL_PATH),
+        n_gpu_layers=-1,   # offload ALL layers to T4
+        n_ctx=8192,        # 8 K context window
+        n_batch=512,
+        verbose=False,
     )
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        MODEL_NAME,
-        cache_dir=MODEL_CACHE,
-        trust_remote_code=True,
-    )
-
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_NAME,
-        cache_dir=MODEL_CACHE,
-        quantization_config=bnb_config,
-        device_map='auto',
-        trust_remote_code=True,
-    )
-    model.eval()
 
     if torch.cuda.is_available():
         alloc  = torch.cuda.memory_allocated() / 1e9
         reserv = torch.cuda.memory_reserved()  / 1e9
         total  = torch.cuda.get_device_properties(0).total_memory / 1e9
-        print(f'\\n✅  Model loaded!')
+        print(f'\\n✅  {MODEL_LABEL}')
         print(f'   GPU       : {torch.cuda.get_device_name(0)}')
         print(f'   Allocated : {alloc:.2f} GB')
         print(f'   Reserved  : {reserv:.2f} GB')
         print(f'   Total GPU : {total:.2f} GB')
         print(f'   Free      : ~{(total - reserv):.2f} GB')
     else:
-        print('\\n✅  Model loaded on CPU (inference will be very slow).')
+        print(f'\\n✅  {MODEL_LABEL} loaded on CPU.')
 """
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -181,9 +194,9 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pypdf import PdfReader
+from llama_cpp import Llama
 from sentence_transformers import SentenceTransformer
 from transformers import AutoTokenizer as _EmbedTok
-from transformers import TextIteratorStreamer
 
 # ── Config ────────────────────────────────────────────────────────────────
 DRIVE_ROOT       = Path('/content/drive/MyDrive/AI-Assistant')
@@ -191,7 +204,7 @@ CHAT_HISTORY_DIR = DRIVE_ROOT / 'ChatHistory'
 VECTOR_DB_DIR    = DRIVE_ROOT / 'VectorDB'
 UPLOADS_DIR      = DRIVE_ROOT / 'Uploads'
 
-MODEL_NAME       = 'empero-ai/Qwythos-9B-Claude-Mythos-5-1M'
+MODEL_LABEL      = 'Qwythos-9B-Claude-Mythos-5-1M (Q6_K GGUF)'
 EMBED_MODEL      = 'BAAI/bge-small-en-v1.5'
 EMBED_DIM        = 384
 CHUNK_TOKENS     = 512      # max tokens per chunk
@@ -274,17 +287,16 @@ def _retrieve(query: str, kb: str, top_k: int = TOP_K) -> list:
             out.append({'text': m['text'], 'source': m['source'], 'score': float(score)})
     return out
 
-# ── Prompt builder ────────────────────────────────────────────────────────
-def _build_prompt(message: str, history: list, system: str, context: str = '') -> str:
-    parts = ['<|system|>\\n' + system]
+# ── Message list builder (llama-cpp chat completion format) ──────────────
+def _build_messages(message: str, history: list, system: str, context: str = '') -> list:
+    sys_content = system
     if context:
-        parts.append('<|context|>\\nUse the following retrieved context to help answer:\\n\\n' + context)
+        sys_content += '\\n\\nRelevant context retrieved from your documents:\\n\\n' + context
+    msgs = [{'role': 'system', 'content': sys_content}]
     for turn in history[-10:]:
-        tag = '<|user|>' if turn.get('role') == 'user' else '<|assistant|>'
-        parts.append(tag + '\\n' + str(turn.get('content', '')))
-    parts.append('<|user|>\\n' + message)
-    parts.append('<|assistant|>')
-    return '\\n'.join(parts)
+        msgs.append({'role': turn.get('role', 'user'), 'content': str(turn.get('content', ''))})
+    msgs.append({'role': 'user', 'content': message})
+    return msgs
 
 # ── FastAPI app ───────────────────────────────────────────────────────────
 app = FastAPI(title='Personal AI Assistant', version='1.0.0', docs_url='/docs')
@@ -311,44 +323,59 @@ async def health():
         }
     return {
         'status'      : 'ok',
-        'model'       : MODEL_NAME,
-        'model_loaded': ('model' in globals() and globals().get('model') is not None),
+        'model'       : MODEL_LABEL,
+        'model_loaded': ('llm' in globals() and globals().get('llm') is not None),
         'gpu'         : gpu,
         'timestamp'   : datetime.utcnow().isoformat() + 'Z',
     }
 
-# ── POST /chat — streaming SSE ────────────────────────────────────────────
-async def _stream_tokens(prompt: str, max_tokens: int, temperature: float, top_p: float):
-    streamer = TextIteratorStreamer(
-        tokenizer, skip_prompt=True, skip_special_tokens=True, timeout=120
-    )
-    inputs = tokenizer(
-        prompt, return_tensors='pt', truncation=True, max_length=4096
-    ).to(model.device)
+# ── POST /chat — streaming SSE via llama-cpp ─────────────────────────────
+import queue as _queue
 
-    gen_kwargs = dict(
-        **inputs,
-        max_new_tokens=max_tokens,
-        temperature=max(temperature, 1e-3),
-        top_p=top_p,
-        do_sample=(temperature > 0.01),
-        pad_token_id=tokenizer.eos_token_id,
-        streamer=streamer,
-    )
-    t = threading.Thread(target=lambda: model.generate(**gen_kwargs), daemon=True)
-    t.start()
+async def _stream_tokens(messages: list, max_tokens: int, temperature: float, top_p: float):
+    # Run llama-cpp chat completion in a daemon thread; stream tokens via a queue.
+    q    = _queue.Queue()
+    DONE = object()
 
-    for tok in streamer:
-        if tok:
-            yield 'data: ' + json.dumps({'token': tok}) + '\\n\\n'
-            await asyncio.sleep(0)
+    def _generate():
+        try:
+            stream = llm.create_chat_completion(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=max(temperature, 1e-4),
+                top_p=top_p,
+                stream=True,
+            )
+            for chunk in stream:
+                delta = chunk['choices'][0].get('delta', {})
+                tok   = delta.get('content', '')
+                if tok:
+                    q.put(tok)
+        except Exception as exc:
+            q.put(exc)
+        finally:
+            q.put(DONE)
+
+    threading.Thread(target=_generate, daemon=True).start()
+
+    while True:
+        try:
+            item = q.get(timeout=120)
+        except _queue.Empty:
+            break
+        if item is DONE:
+            break
+        if isinstance(item, Exception):
+            raise item
+        yield 'data: ' + json.dumps({'token': item}) + '\\n\\n'
+        await asyncio.sleep(0)
 
     yield 'data: [DONE]\\n\\n'
 
 @app.post('/chat')
 async def chat(body: dict):
-    _model = globals().get('model')
-    if _model is None:
+    _llm = globals().get('llm')
+    if _llm is None:
         raise HTTPException(503, detail='Model not loaded. Run Cell 3 first.')
 
     msg = body.get('message', '').strip()
@@ -372,10 +399,10 @@ async def chat(body: dict):
                 '[Source: ' + c['source'] + ']\\n' + c['text'] for c in chunks
             )
 
-    prompt = _build_prompt(msg, history, system, context)
+    messages = _build_messages(msg, history, system, context)
 
     return StreamingResponse(
-        _stream_tokens(prompt, max_tokens, temperature, top_p),
+        _stream_tokens(messages, max_tokens, temperature, top_p),
         media_type='text/event-stream',
         headers={
             'Cache-Control'    : 'no-cache',
