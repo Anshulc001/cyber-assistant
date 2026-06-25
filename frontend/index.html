@@ -503,6 +503,56 @@
     .msg-bubble pre:hover .copy-btn { opacity: 1; }
     .copy-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+    /* Thinking block styling */
+    .think-block {
+      background: rgba(255, 255, 255, 0.02);
+      border-radius: 6px;
+      margin: 0.5rem 0;
+      overflow: hidden;
+      border: 1px solid var(--border-light);
+      border-left: 3px solid var(--text-dim);
+    }
+    .think-header {
+      background: rgba(255, 255, 255, 0.03);
+      padding: 0.4rem 0.75rem;
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--text-dim);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      user-select: none;
+      transition: background 0.15s;
+    }
+    .think-header:hover {
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .think-header .toggle-icon {
+      font-size: 0.6rem;
+      transition: transform 0.2s;
+    }
+    .think-body {
+      padding: 0.6rem 0.75rem;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      border-top: 1px solid var(--border-light);
+      max-height: 2000px;
+      opacity: 1;
+      overflow: hidden;
+      transition: max-height 0.3s ease, opacity 0.3s ease, padding 0.3s ease;
+    }
+    .think-body.collapsed {
+      max-height: 0;
+      opacity: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+      border-top-color: transparent;
+    }
+    .think-header.collapsed-header .toggle-icon {
+      transform: rotate(-90deg);
+    }
+
     /* RAG badge */
     .rag-badge {
       display: inline-flex;
@@ -1193,7 +1243,7 @@ function appendMessage(role, text, ragUsed = false) {
   bubble.className = 'msg-bubble';
 
   if (role === 'assistant') {
-    bubble.innerHTML = renderMarkdown(text);
+    bubble.innerHTML = renderMarkdownWithThink(text, true);
     addCopyButtons(bubble);
     if (ragUsed) {
       const badge = document.createElement('div');
@@ -1248,14 +1298,14 @@ function appendStreamingBubble() {
 }
 
 function updateStreamingBubble(bubble, text) {
-  bubble.innerHTML = renderMarkdown(text);
+  bubble.innerHTML = renderMarkdownWithThink(text, false);
   bubble.classList.add('streaming');
   scrollToBottom();
 }
 
 function finalizeStreamingBubble(bubble, wrap, text, ragUsed) {
   bubble.classList.remove('streaming');
-  bubble.innerHTML = renderMarkdown(text);
+  bubble.innerHTML = renderMarkdownWithThink(text, true);
   addCopyButtons(bubble);
   if (ragUsed) {
     const badge = document.createElement('div');
@@ -1267,6 +1317,44 @@ function finalizeStreamingBubble(bubble, wrap, text, ragUsed) {
 }
 
 // ── Markdown render + code copy buttons ───────────────────────────────
+function parseThink(text) {
+  const thinkRegex = /<think>([\s\S]*?)(<\/think>|$)/i;
+  const match = text.match(thinkRegex);
+  if (match) {
+    const thinkContent = match[1];
+    const restContent = text.replace(thinkRegex, '');
+    return { thinkContent, restContent };
+  }
+  return { thinkContent: null, restContent: text };
+}
+
+function renderMarkdownWithThink(text, collapseByDefault = false) {
+  const { thinkContent, restContent } = parseThink(text);
+  let html = '';
+  if (thinkContent !== null) {
+    const isCollapsed = collapseByDefault;
+    const bodyClass = isCollapsed ? 'think-body collapsed' : 'think-body';
+    const headerClass = isCollapsed ? 'think-header collapsed-header' : 'think-header';
+    html += `
+      <div class="think-block">
+        <div class="${headerClass}" onclick="toggleThinkBlock(this)">
+          <span>💭 Thought process</span>
+          <span class="toggle-icon">▼</span>
+        </div>
+        <div class="${bodyClass}">${renderMarkdown(thinkContent)}</div>
+      </div>
+    `;
+  }
+  html += renderMarkdown(restContent);
+  return html;
+}
+
+window.toggleThinkBlock = function(header) {
+  const body = header.nextElementSibling;
+  body.classList.toggle('collapsed');
+  header.classList.toggle('collapsed-header');
+};
+
 function renderMarkdown(text) {
   try { return marked.parse(text || ''); } catch (_) { return text || ''; }
 }

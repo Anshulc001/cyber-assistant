@@ -52,8 +52,16 @@ class ModelService:
         context_chunks: list,
     ) -> list[dict[str, str]]:
         sys_content = (
-            "You are a helpful, concise, and accurate personal AI assistant. "
-            "Answer the user's question directly. If you don't know, say so."
+            "You are a helpful, concise, and accurate personal AI assistant.\n\n"
+            "CRITICAL REQUIREMENT:\n"
+            "You MUST begin your response by writing your step-by-step internal monologue, planning, and reasoning process wrapped inside <think> and </think> tags.\n"
+            "Example format:\n"
+            "<think>\n"
+            "1. Analyze user request...\n"
+            "2. Formulate plan...\n"
+            "</think>\n"
+            "[Your final direct answer to the user here]\n\n"
+            "Do not omit the <think> and </think> tags. Output all your reasoning inside these tags, and output your final response after the </think> tag."
         )
 
         if context_chunks:
