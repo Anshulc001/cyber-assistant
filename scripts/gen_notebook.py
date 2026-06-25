@@ -95,9 +95,17 @@ print(f'   CUDA version: {cuda_version} -> Tag: {cuda_tag}')
 print('⏳  Scanning for compatible pre-built wheel repositories …')
 valid_urls = []
 tags_to_check = []
-if cuda_tag not in ['cu125', 'cu124', 'cu123', 'cu122', 'cu121', 'cu118']:
-    tags_to_check.append(cuda_tag)
-tags_to_check.extend(['cu125', 'cu124', 'cu123', 'cu122', 'cu121', 'cu118'])
+
+if cuda_tag.startswith('cu12'):
+    tags_to_check = [cuda_tag, 'cu125', 'cu124', 'cu123', 'cu122', 'cu121']
+elif cuda_tag.startswith('cu11'):
+    tags_to_check = [cuda_tag, 'cu118']
+else:
+    tags_to_check = [cuda_tag]
+
+# De-duplicate while preserving order
+seen = set()
+tags_to_check = [t for t in tags_to_check if not (t in seen or seen.add(t))]
 
 for tag in tags_to_check:
     url = f'https://abetlen.github.io/llama-cpp-python/whl/{tag}/'
