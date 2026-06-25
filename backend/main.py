@@ -9,7 +9,13 @@ Run on Colab (from repo root):
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import sys
+
+# Set SelectorEventLoop on Windows to avoid WinError 10014 proactor accept bugs
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
