@@ -1,0 +1,79 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.Python
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.pyo
+*.pyd
+.cache/
+
+# Virtual environments
+.env
+.venv/
+venv/
+env/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Node / Frontend (Phase 2+)
+node_modules/
+.npm/
+.next/
+out/
+.nuxt/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V7
+.Trashes
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# Logs
+*.log
+logs/
+
+# Local model cache (models live on Google Drive, not here)
+models/
+*.bin
+*.safetensors
+*.gguf
+
+# Local data (lives on Google Drive in production)
+uploads/
+vector_db/
+chat_history/
+
+# FAISS index files
+*.faiss
+*.index
+*.pkl
+
+# Secrets
+*.pem
+*.key
+.env.local
+secrets.json

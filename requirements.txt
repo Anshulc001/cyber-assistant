@@ -1,0 +1,29 @@
+# Backend Python dependencies (no model weights — those download on Colab)
+# Pin majors to keep Colab installs reproducible.
+
+# --- Web framework ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+sse-starlette==2.2.1
+
+# --- Data validation / settings ---
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# --- LLM + embeddings (used on Colab) ---
+transformers==4.48.0
+accelerate==1.2.1
+sentencepiece==0.2.0
+safetensors==0.4.5
+
+# --- RAG: embeddings + vector store ---
+sentence-transformers==3.3.1
+faiss-cpu==1.9.0.post1
+
+# --- PDF / document parsing for RAG uploads ---
+pypdf==5.1.0
+
+# --- Tunnel helper / HTTP ---
+requests==2.32.3
+httpx==0.28.1

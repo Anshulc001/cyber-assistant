@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Personal AI Assistant — chat with your local LLM running on Google Colab." />
+  <title>Personal AI Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset & tokens ─────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #0d0f14;
+      --surface:    #161a23;
+      --surface2:   #1e2330;
+      --border:     #2a3045;
+      --accent:     #6c8ef5;
+      --accent-dim: #3d5296;
+      --user-bg:    #1e2c56;
+      --bot-bg:     #1a1f2e;
+      --text:       #e2e8f0;
+      --text-dim:   #8892a4;
+      --danger:     #f87171;
+      --radius:     12px;
+      --font:       'Inter', system-ui, sans-serif;
+    }
+
+    html, body { height: 100%; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.875rem 1.5rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .header-left { display: flex; align-items: center; gap: 0.75rem; }
+
+    .logo {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--accent), #a78bfa);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem;
+    }
+
+    header h1 { font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; }
+
+    .status-badge {
+      display: flex; align-items: center; gap: 0.4rem;
+      font-size: 0.75rem; color: var(--text-dim);
+    }
+
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--danger);
+      transition: background 0.3s;
+    }
+    .status-dot.online { background: #4ade80; box-shadow: 0 0 6px #4ade8088; }
+
+    /* ── Config bar ──────────────────────────────────────────────────── */
+    #config-bar {
+      display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+      padding: 0.6rem 1.5rem;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      font-size: 0.8rem;
+      flex-shrink: 0;
+    }
+
+    #config-bar label { color: var(--text-dim); }
+
+    #api-url-input {
+      flex: 1; min-width: 240px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 0.35rem 0.65rem;
+      font-family: 'Courier New', monospace;
+      font-size: 0.78rem;
+    }
+    #api-url-input:focus { outline: none; border-color: var(--accent); }
+
+    .toggle-wrap { display: flex; align-items: center; gap: 0.4rem; }
+
+    .toggle {
+      appearance: none; width: 36px; height: 20px;
+      background: var(--border); border-radius: 20px; cursor: pointer;
+      position: relative; transition: background 0.2s;
+    }
+    .toggle::after {
+      content: ''; position: absolute;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #fff; top: 3px; left: 3px;
+      transition: left 0.2s;
+    }
+    .toggle:checked { background: var(--accent); }
+    .toggle:checked::after { left: 19px; }
+
+    select {
+      background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px;
+      padding: 0.3rem 0.5rem; font-size: 0.78rem; cursor: pointer;
+    }
+    select:focus { outline: none; border-color: var(--accent); }
+
+    /* ── Chat area ───────────────────────────────────────────────────── */
+    #chat-container {
+      flex: 1; overflow-y: auto; padding: 1.5rem;
+      display: flex; flex-direction: column; gap: 1rem;
+      scroll-behavior: smooth;
+    }
+
+    #chat-container::-webkit-scrollbar { width: 6px; }
+    #chat-container::-webkit-scrollbar-track { background: transparent; }
+    #chat-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .message {
+      display: flex; gap: 0.75rem;
+      animation: fadeUp 0.2s ease-out;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .message.user { flex-direction: row-reverse; }
+
+    .avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.85rem; flex-shrink: 0;
+    }
+    .user .avatar { background: var(--accent-dim); }
+    .assistant .avatar { background: var(--surface2); border: 1px solid var(--border); }
+
+    .bubble {
+      max-width: 75%; padding: 0.75rem 1rem;
+      border-radius: var(--radius); line-height: 1.6; font-size: 0.9rem;
+      word-break: break-word; white-space: pre-wrap;
+    }
+    .user .bubble { background: var(--user-bg); border-bottom-right-radius: 4px; }
+    .assistant .bubble {
+      background: var(--bot-bg); border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+    }
+
+    .sources {
+      margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-dim);
+      display: flex; flex-wrap: wrap; gap: 0.3rem;
+    }
+    .source-tag {
+      background: var(--surface2); border: 1px solid var(--border);
+      padding: 0.15rem 0.5rem; border-radius: 4px;
+    }
+
+    /* Typing cursor during streaming */
+    .cursor::after {
+      content: '▍'; animation: blink 0.8s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* ── Input bar ───────────────────────────────────────────────────── */
+    #input-bar {
+      padding: 1rem 1.5rem;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #input-form { display: flex; gap: 0.6rem; align-items: flex-end; }
+
+    #message-input {
+      flex: 1; resize: none;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      padding: 0.7rem 1rem;
+      font-family: var(--font);
+      font-size: 0.9rem;
+      line-height: 1.5;
+      min-height: 44px; max-height: 160px;
+      transition: border-color 0.2s;
+    }
+    #message-input:focus { outline: none; border-color: var(--accent); }
+    #message-input::placeholder { color: var(--text-dim); }
+
+    .btn {
+      padding: 0.65rem 1.1rem; border-radius: var(--radius);
+      border: none; cursor: pointer; font-family: var(--font);
+      font-size: 0.88rem; font-weight: 500; transition: all 0.15s;
+    }
+
+    #send-btn {
+      background: var(--accent);
+      color: #fff;
+    }
+    #send-btn:hover:not(:disabled) { background: #849cf7; transform: translateY(-1px); }
+    #send-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+    #upload-btn {
+      background: var(--surface2); color: var(--text-dim);
+      border: 1px solid var(--border);
+    }
+    #upload-btn:hover { border-color: var(--accent); color: var(--text); }
+
+    #file-input { display: none; }
+
+    /* ── Empty state ─────────────────────────────────────────────────── */
+    #empty-state {
+      margin: auto; text-align: center; color: var(--text-dim);
+      display: flex; flex-direction: column; align-items: center; gap: 0.75rem;
+    }
+    #empty-state .big-icon { font-size: 3rem; }
+    #empty-state h2 { font-size: 1.1rem; font-weight: 600; color: var(--text); }
+    #empty-state p { font-size: 0.85rem; max-width: 320px; line-height: 1.6; }
+
+    /* ── Toast notifications ─────────────────────────────────────────── */
+    #toast {
+      position: fixed; bottom: 5rem; left: 50%; transform: translateX(-50%);
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); padding: 0.6rem 1.2rem;
+      border-radius: 8px; font-size: 0.83rem;
+      opacity: 0; pointer-events: none; transition: opacity 0.3s;
+      z-index: 999;
+    }
+    #toast.show { opacity: 1; }
+    #toast.error { border-color: var(--danger); color: var(--danger); }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ────────────────────────────────────────────────────────── -->
+<header>
+  <div class="header-left">
+    <div class="logo">🤖</div>
+    <h1>Personal AI Assistant</h1>
+  </div>
+  <div class="status-badge">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">Disconnected</span>
+  </div>
+</header>
+
+<!-- ── Config bar ────────────────────────────────────────────────────── -->
+<div id="config-bar">
+  <label for="api-url-input">API URL</label>
+  <input id="api-url-input" type="text" placeholder="https://your-tunnel.trycloudflare.com" spellcheck="false" />
+
+  <div class="toggle-wrap">
+    <input class="toggle" type="checkbox" id="rag-toggle" />
+    <label for="rag-toggle">RAG</label>
+  </div>
+
+  <label for="kb-select">KB</label>
+  <select id="kb-select">
+    <option value="">default</option>
+  </select>
+
+  <button class="btn" id="connect-btn" onclick="checkHealth()">Connect</button>
+  <button class="btn" id="new-chat-btn" onclick="newChat()" style="background:var(--surface2);color:var(--text-dim);border:1px solid var(--border)">New Chat</button>
+</div>
+
+<!-- ── Chat messages ─────────────────────────────────────────────────── -->
+<div id="chat-container">
+  <div id="empty-state">
+    <div class="big-icon">💬</div>
+    <h2>Start a conversation</h2>
+    <p>Enter your Cloudflare Tunnel URL above, hit Connect, then type a message.</p>
+  </div>
+</div>
+
+<!-- ── Input ─────────────────────────────────────────────────────────── -->
+<div id="input-bar">
+  <form id="input-form">
+    <input type="file" id="file-input" accept=".pdf" />
+    <button type="button" class="btn" id="upload-btn" title="Upload PDF">📎</button>
+    <textarea
+      id="message-input"
+      rows="1"
+      placeholder="Type a message… (Shift+Enter for new line)"
+    ></textarea>
+    <button type="submit" class="btn" id="send-btn" disabled>Send</button>
+  </form>
+</div>
+
+<!-- ── Toast ─────────────────────────────────────────────────────────── -->
+<div id="toast"></div>
+
+<script>
+  // ── State ─────────────────────────────────────────────────────────── //
+  let apiBase = localStorage.getItem('apiBase') || '';
+  let chatId = null;
+  let isStreaming = false;
+  let messageHistory = [];   // { role, content }[]
+
+  const $chat      = document.getElementById('chat-container');
+  const $input     = document.getElementById('message-input');
+  const $form      = document.getElementById('input-form');
+  const $sendBtn   = document.getElementById('send-btn');
+  const $apiInput  = document.getElementById('api-url-input');
+  const $ragToggle = document.getElementById('rag-toggle');
+  const $kbSelect  = document.getElementById('kb-select');
+  const $dot       = document.getElementById('status-dot');
+  const $status    = document.getElementById('status-text');
+  const $toast     = document.getElementById('toast');
+  const $empty     = document.getElementById('empty-state');
+  const $fileInput = document.getElementById('file-input');
+
+  // Restore saved URL
+  if (apiBase) $apiInput.value = apiBase;
+
+  // ── Toast ─────────────────────────────────────────────────────────── //
+  function toast(msg, isError = false, ms = 3000) {
+    $toast.textContent = msg;
+    $toast.className = 'show' + (isError ? ' error' : '');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => { $toast.className = ''; }, ms);
+  }
+
+  // ── Auto-resize textarea ──────────────────────────────────────────── //
+  $input.addEventListener('input', () => {
+    $input.style.height = 'auto';
+    $input.style.height = Math.min($input.scrollHeight, 160) + 'px';
+  });
+
+  // ── Connect / health check ────────────────────────────────────────── //
+  async function checkHealth() {
+    apiBase = $apiInput.value.trim().replace(/\/$/, '');
+    if (!apiBase) { toast('Please enter your API URL.', true); return; }
+    localStorage.setItem('apiBase', apiBase);
+
+    try {
+      const r = await fetch(`${apiBase}/health`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      setOnline(data.model_loaded);
+      toast(`Connected — model ${data.model_loaded ? 'loaded ✅' : 'not yet loaded ⚠️'}`);
+      await loadKnowledgeBases();
+    } catch (e) {
+      setOffline();
+      toast(`Cannot reach API: ${e.message}`, true);
+    }
+  }
+
+  function setOnline(modelLoaded) {
+    $dot.classList.add('online');
+    $status.textContent = modelLoaded ? 'Online' : 'Online (loading model…)';
+    $sendBtn.disabled = !modelLoaded;
+  }
+  function setOffline() {
+    $dot.classList.remove('online');
+    $status.textContent = 'Disconnected';
+    $sendBtn.disabled = true;
+  }
+
+  // ── Knowledge bases ───────────────────────────────────────────────── //
+  async function loadKnowledgeBases() {
+    try {
+      const r = await fetch(`${apiBase}/api/rag/knowledge-bases`);
+      const data = await r.json();
+      const bases = data.knowledge_bases || [];
+      $kbSelect.innerHTML = '<option value="">default</option>';
+      bases.forEach(kb => {
+        const opt = document.createElement('option');
+        opt.value = opt.textContent = kb;
+        $kbSelect.appendChild(opt);
+      });
+    } catch (_) {}
+  }
+
+  // ── New chat ──────────────────────────────────────────────────────── //
+  function newChat() {
+    chatId = null;
+    messageHistory = [];
+    $chat.innerHTML = '';
+    $chat.appendChild($empty);
+    $empty.style.display = 'flex';
+    toast('New chat started.');
+  }
+
+  // ── Render a message bubble ───────────────────────────────────────── //
+  function appendMessage(role, text, sources = []) {
+    if ($empty.style.display !== 'none') $empty.style.display = 'none';
+
+    const wrap = document.createElement('div');
+    wrap.className = `message ${role}`;
+
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    avatar.textContent = role === 'user' ? '🧑' : '🤖';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+
+    if (sources.length) {
+      const srcDiv = document.createElement('div');
+      srcDiv.className = 'sources';
+      sources.forEach(s => {
+        const tag = document.createElement('span');
+        tag.className = 'source-tag';
+        tag.textContent = `📄 ${s.source}`;
+        srcDiv.appendChild(tag);
+      });
+      bubble.appendChild(srcDiv);
+    }
+
+    wrap.appendChild(avatar);
+    wrap.appendChild(bubble);
+    $chat.appendChild(wrap);
+    $chat.scrollTop = $chat.scrollHeight;
+    return bubble;
+  }
+
+  // ── Send message ──────────────────────────────────────────────────── //
+  $form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = $input.value.trim();
+    if (!text || isStreaming) return;
+
+    $input.value = '';
+    $input.style.height = 'auto';
+
+    appendMessage('user', text);
+    messageHistory.push({ role: 'user', content: text });
+
+    const assistantBubble = appendMessage('assistant', '');
+    assistantBubble.classList.add('cursor');
+
+    isStreaming = true;
+    $sendBtn.disabled = true;
+
+    const payload = {
+      message: text,
+      chat_id: chatId,
+      history: messageHistory.slice(-20),  // last 10 turns
+      stream: true,
+      use_rag: $ragToggle.checked,
+      knowledge_base: $kbSelect.value || null,
+    };
+
+    let fullReply = '';
+
+    try {
+      const resp = await fetch(`${apiBase}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${resp.status}`);
+      }
+
+      // Extract chat ID from header if server set it
+      const hdrChatId = resp.headers.get('X-Chat-ID');
+      if (hdrChatId) chatId = hdrChatId;
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop();   // keep incomplete line
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const raw = line.slice(6).trim();
+          if (raw === '[DONE]') break;
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed.chat_id && !chatId) chatId = parsed.chat_id;
+            fullReply += parsed.token || '';
+            assistantBubble.textContent = fullReply;
+            $chat.scrollTop = $chat.scrollHeight;
+          } catch (_) {}
+        }
+      }
+    } catch (err) {
+      assistantBubble.textContent = `⚠️ Error: ${err.message}`;
+      toast(err.message, true);
+    } finally {
+      assistantBubble.classList.remove('cursor');
+      if (fullReply) messageHistory.push({ role: 'assistant', content: fullReply });
+      isStreaming = false;
+      $sendBtn.disabled = false;
+      $input.focus();
+    }
+  });
+
+  // Shift+Enter sends, Enter adds newline
+  $input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      $form.requestSubmit();
+    }
+  });
+
+  // ── PDF upload ────────────────────────────────────────────────────── //
+  document.getElementById('upload-btn').addEventListener('click', () => {
+    if (!apiBase) { toast('Connect to the API first.', true); return; }
+    $fileInput.click();
+  });
+
+  $fileInput.addEventListener('change', async () => {
+    const file = $fileInput.files[0];
+    if (!file) return;
+    $fileInput.value = '';
+
+    toast(`Uploading '${file.name}' …`, false, 60000);
+    const form = new FormData();
+    form.append('file', file);
+    const kb = $kbSelect.value;
+    if (kb) form.append('knowledge_base', kb);
+
+    try {
+      const r = await fetch(`${apiBase}/api/rag/upload`, { method: 'POST', body: form });
+      if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`);
+      const data = await r.json();
+      toast(`✅ '${data.filename}' indexed — ${data.chunks_created} chunks.`);
+      await loadKnowledgeBases();
+    } catch (err) {
+      toast(`Upload failed: ${err.message}`, true);
+    }
+  });
+
+  // ── Auto-connect if URL is saved ─────────────────────────────────── //
+  if (apiBase) checkHealth();
+</script>
+</body>
+</html>
