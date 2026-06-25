@@ -73,6 +73,7 @@ import os, subprocess, sys
 # ── Cell 2: Install All Dependencies ──────────────────────────────────────
 import os, subprocess, sys
 import torch
+import urllib.request
 
 def _pip(*pkgs, extra_flags=None):
     flags = ['--no-cache-dir']
@@ -91,16 +92,43 @@ else:
     cuda_tag = 'cpu'
 print(f'   CUDA version: {cuda_version} -> Tag: {cuda_tag}')
 
-print('⏳  Installing pre-built llama-cpp-python wheel (should take <15s) …')
-# Run this with visible output so we can see the download progress and verify the wheel
-subprocess.run([
+print('⏳  Scanning for compatible pre-built wheel repositories …')
+valid_urls = []
+tags_to_check = []
+if cuda_tag not in ['cu125', 'cu124', 'cu123', 'cu122', 'cu121', 'cu118']:
+    tags_to_check.append(cuda_tag)
+tags_to_check.extend(['cu125', 'cu124', 'cu123', 'cu122', 'cu121', 'cu118'])
+
+for tag in tags_to_check:
+    url = f'https://abetlen.github.io/llama-cpp-python/whl/{tag}/'
+    try:
+        req = urllib.request.Request(url, method='HEAD')
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
+            if resp.status == 200:
+                valid_urls.append(f'https://abetlen.github.io/llama-cpp-python/whl/{tag}')
+                print(f'   [✓] Found compatible repository for {tag}')
+    except Exception:
+        pass
+
+# Assemble pip command
+pip_cmd = [
     sys.executable, '-m', 'pip', 'install',
     'llama-cpp-python',
     '--no-cache-dir',
     '--force-reinstall',
-    '--only-binary=:all:',
-    '--extra-index-url', f'https://abetlen.github.io/llama-cpp-python/whl/{cuda_tag}'
-], check=True)
+]
+
+if valid_urls:
+    print('⏳  Installing pre-built llama-cpp-python wheel (should take <15s) …')
+    pip_cmd.append('--only-binary=:all:')
+    for url in valid_urls:
+        pip_cmd.extend(['--extra-index-url', url])
+else:
+    print('⚠️   No pre-built wheels found. Falling back to source compilation (takes ~5-10 min) …')
+    os.environ['CMAKE_ARGS']  = '-DGGML_CUDA=on'
+    os.environ['FORCE_CMAKE'] = '1'
+
+subprocess.run(pip_cmd, check=True)
 
 print('⏳  Installing HuggingFace hub & Server libs …')
 _pip('huggingface_hub>=0.23', 'fastapi>=0.110', 'uvicorn[standard]>=0.29')
