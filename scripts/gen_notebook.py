@@ -83,19 +83,24 @@ def _pip(*pkgs, extra_flags=None):
         stdout=subprocess.DEVNULL,
     )
 
-print('⏳  Detecting CUDA version and installing pre-built llama-cpp-python wheel …')
+print('⏳  Detecting CUDA version …')
 cuda_version = torch.version.cuda
 if cuda_version:
     cuda_tag = 'cu' + cuda_version.replace('.', '')[:3]
 else:
     cuda_tag = 'cpu'
+print(f'   CUDA version: {cuda_version} -> Tag: {cuda_tag}')
 
-# Fallback environment flags if compiling is required
-os.environ['CMAKE_ARGS']  = '-DGGML_CUDA=on'
-os.environ['FORCE_CMAKE'] = '1'
-
-_pip('llama-cpp-python',
-     extra_flags=['--force-reinstall', '--extra-index-url', f'https://abetlen.github.io/llama-cpp-python/whl/{cuda_tag}'])
+print('⏳  Installing pre-built llama-cpp-python wheel (should take <15s) …')
+# Run this with visible output so we can see the download progress and verify the wheel
+subprocess.run([
+    sys.executable, '-m', 'pip', 'install',
+    'llama-cpp-python',
+    '--no-cache-dir',
+    '--force-reinstall',
+    '--only-binary=:all:',
+    '--extra-index-url', f'https://abetlen.github.io/llama-cpp-python/whl/{cuda_tag}'
+], check=True)
 
 print('⏳  Installing HuggingFace hub & Server libs …')
 _pip('huggingface_hub>=0.23', 'fastapi>=0.110', 'uvicorn[standard]>=0.29')
