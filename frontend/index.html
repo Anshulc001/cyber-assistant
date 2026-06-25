@@ -1437,6 +1437,7 @@ async function sendMessage() {
 
   try {
     const payload = {
+      chat_id       : S.chatId,
       message       : text,
       history       : S.messages.slice(-20, -1).map(m => ({ role: m.role, content: m.content })),
       use_rag       : el.ragToggle.checked,
