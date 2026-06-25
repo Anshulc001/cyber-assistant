@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     TEMPERATURE: float = 0.7
     TOP_P: float = 0.9
     REPEAT_PENALTY: float = 1.1
-    CONTEXT_WINDOW: int = 8192
+    CONTEXT_WINDOW: int = 100000
 
     # --- Embeddings / RAG ---
     EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"

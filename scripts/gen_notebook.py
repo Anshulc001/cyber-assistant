@@ -177,7 +177,10 @@ _llama_proc = subprocess.Popen(
         '-m', '/content/Models/Qwythos-9B-Claude-Mythos-5-1M-MTP-Q6_K.gguf',
         '--mmproj', '/content/Models/mmproj-Qwythos-9B-Claude-Mythos-5-1M-F16.gguf',
         '-ngl', '-1',          # Offload all layers to T4 GPU
-        '-c', '8192',          # 8k context window
+        '-c', '100000',        # 100k context window
+        '-fa',                 # Enable Flash Attention
+        '-ctk', 'q8_0',        # 8-bit quantized Key Cache
+        '-ctv', 'q8_0',        # 8-bit quantized Value Cache
         '--host', '0.0.0.0',
         '--port', '8000',
     ],
