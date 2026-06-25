@@ -1318,7 +1318,17 @@ function finalizeStreamingBubble(bubble, wrap, text, ragUsed) {
 
 // ── Markdown render + code copy buttons ───────────────────────────────
 function parseThink(text) {
-  // 1. Try heuristic signature split first, as this model frequently writes meta-thoughts with early </think> tags
+  // 1. Try explicit separator first (highest priority)
+  const sepMarker = '=== RESPONSE ===';
+  const sepIndex = text.indexOf(sepMarker);
+  if (sepIndex !== -1) {
+    const thinkContent = text.substring(0, sepIndex).trim();
+    const restContent = text.substring(sepIndex + sepMarker.length).trim();
+    const cleanThink = thinkContent.replace(/<\/?think>/gi, '').trim();
+    return { thinkContent: cleanThink, restContent };
+  }
+
+  // 2. Try heuristic signature split next
   const splitRegex = /\n+(?:Hello!?\s+)?I'm Qwythos/i;
   const splitMatches = [...text.matchAll(new RegExp(splitRegex, 'gi'))];
   if (splitMatches.length > 0) {
@@ -1333,7 +1343,7 @@ function parseThink(text) {
     }
   }
 
-  // 2. Fallback to XML-style <think> tags if signature split is not found
+  // 3. Fallback to XML-style <think> tags if no separators are found
   const thinkRegex = /<think>([\s\S]*?)(<\/think>|$)/i;
   const match = text.match(thinkRegex);
   if (match) {
