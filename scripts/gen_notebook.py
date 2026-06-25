@@ -45,9 +45,9 @@ Run all cells **top to bottom**. The final cell prints your public Cloudflare UR
 
 | # | Cell | Purpose |
 |---|------|---------|
-| 1 | Mount Drive | Mount Google Drive + create `Models/` cache folder |
+| 1 | Setup Cache | Create local `Models/` cache folder |
 | 2 | Install deps | Install `llama-cpp-python`, `fastapi`, `uvicorn`, and `cloudflared` |
-| 3 | Load model | Download Qwythos-9B Q6_K GGUF → Drive cache (skipped if cached), and load with CUDA |
+| 3 | Load model | Download Qwythos-9B Q6_K GGUF → local cache (skipped if cached), and load with CUDA |
 | 4 | FastAPI app | Expose model inference `/chat` and `/health` endpoints inline |
 | 5 | Start server | uvicorn on :8000 + Cloudflare tunnel → prints Tunnel URL |
 | 6 | Keep-alive | (Optional) prevent idle-timeout disconnect |
@@ -55,18 +55,13 @@ Run all cells **top to bottom**. The final cell prints your public Cloudflare UR
 
 # ─────────────────────────────────────────────────────────────────────────
 CELL1 = """\
-# ── Cell 1: Mount Google Drive + Create Models Cache Directory ─────────────
-from google.colab import drive
+# ── Cell 1: Create Local Models Cache Directory ───────────────────────────
 from pathlib import Path
 
-drive.mount('/content/drive')
-
-DRIVE_ROOT = Path('/content/drive/MyDrive/AI-Assistant')
-MODELS_DIR = DRIVE_ROOT / 'Models'
+MODELS_DIR = Path('/content/Models')
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-print('✅  Google Drive mounted.')
-print(f'   Root        : {DRIVE_ROOT}')
+print('✅  Local models cache directory set up.')
 print(f'   Models Cache: {MODELS_DIR}')
 """
 
@@ -110,23 +105,23 @@ print('   cloudflared:', (r.stdout or r.stderr).strip())
 CELL3 = """\
 # ── Cell 3: Download & Load Qwythos-9B Q6_K GGUF ─────────────────────────
 # Uses llama-cpp-python — all layers offloaded to T4 GPU.
-# GGUF file is cached to Google Drive; subsequent runs skip the download.
+# GGUF file is cached locally; subsequent runs skip the download if cached.
 from pathlib import Path
 import torch
 from huggingface_hub import hf_hub_download
 from llama_cpp import Llama
 
-DRIVE_ROOT   = Path('/content/drive/MyDrive/AI-Assistant')
+MODELS_DIR   = Path('/content/Models')
 GGUF_REPO    = 'empero-ai/Qwythos-9B-Claude-Mythos-5-1M-GGUF'
 GGUF_FILE    = 'Qwythos-9B-Claude-Mythos-5-1M-MTP-Q6_K.gguf'
 MODEL_LABEL  = 'Qwythos-9B-Claude-Mythos-5-1M  (Q6_K GGUF, 7.09 GiB)'
-MODEL_PATH   = DRIVE_ROOT / 'Models' / GGUF_FILE
+MODEL_PATH   = MODELS_DIR / GGUF_FILE
 
 if 'llm' in globals() and globals()['llm'] is not None:
     print('Model already in memory — skipping reload.')
     print(f'  {MODEL_LABEL}')
 else:
-    # ── 1. Download (skipped if cached on Drive) ──────────────────────────
+    # ── 1. Download (skipped if cached locally) ──────────────────────────
     if MODEL_PATH.exists():
         print(f'Using cached GGUF: {MODEL_PATH}')
     else:
@@ -136,7 +131,7 @@ else:
         hf_hub_download(
             repo_id=GGUF_REPO,
             filename=GGUF_FILE,
-            local_dir=str(DRIVE_ROOT / 'Models'),
+            local_dir=str(MODELS_DIR),
             local_dir_use_symlinks=False,
         )
         print(f'  Saved to: {MODEL_PATH}')
@@ -417,6 +412,6 @@ out = Path(__file__).resolve().parent.parent / "colab" / "AI_Server.ipynb"
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(json.dumps(notebook, indent=1, ensure_ascii=False), encoding="utf-8")
 
-print(f"✅  Generated: {out}")
+print(f"[OK] Generated: {out}")
 print(f"   Cells     : {len(notebook['cells'])} (1 markdown + 6 code)")
 print(f"   File size : {out.stat().st_size / 1024:.1f} KB")
