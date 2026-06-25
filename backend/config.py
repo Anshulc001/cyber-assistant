@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     CORS_ALLOW_ORIGINS: list[str] = ["*"]
 
     # --- LLM ---
-    MODEL_NAME: str = "Qwythos-9B"
+    MODEL_NAME: str = "empero-ai/Qwythos-9B-Claude-Mythos-5-1M"
     MAX_NEW_TOKENS: int = 1024
     TEMPERATURE: float = 0.7
     TOP_P: float = 0.9

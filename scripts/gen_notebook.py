@@ -112,7 +112,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 DRIVE_ROOT  = Path('/content/drive/MyDrive/AI-Assistant')
-MODEL_NAME  = 'Qwythos-9B'        # ← update if your HuggingFace model ID differs
+MODEL_NAME  = 'empero-ai/Qwythos-9B-Claude-Mythos-5-1M'
 MODEL_CACHE = str(DRIVE_ROOT / 'Models')
 
 if 'model' in globals() and globals()['model'] is not None:
@@ -191,7 +191,7 @@ CHAT_HISTORY_DIR = DRIVE_ROOT / 'ChatHistory'
 VECTOR_DB_DIR    = DRIVE_ROOT / 'VectorDB'
 UPLOADS_DIR      = DRIVE_ROOT / 'Uploads'
 
-MODEL_NAME       = 'Qwythos-9B'
+MODEL_NAME       = 'empero-ai/Qwythos-9B-Claude-Mythos-5-1M'
 EMBED_MODEL      = 'BAAI/bge-small-en-v1.5'
 EMBED_DIM        = 384
 CHUNK_TOKENS     = 512      # max tokens per chunk
