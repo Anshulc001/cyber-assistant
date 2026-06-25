@@ -77,3 +77,6 @@ chat_history/
 *.key
 .env.local
 secrets.json
+
+# Local storage folder
+data/

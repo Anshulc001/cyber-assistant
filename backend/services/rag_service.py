@@ -213,15 +213,22 @@ class RAGService:
             )
         return results
 
-    async def list_knowledge_bases(self) -> list[str]:
-        """Return names of all knowledge bases that have persisted indices."""
+    async def list_knowledge_bases(self) -> list[dict[str, Any]]:
+        """Return all persisted knowledge bases with chunk counts."""
+        import faiss
+
         if not settings.vector_db_dir.exists():
             return []
-        return [
-            d.name
-            for d in settings.vector_db_dir.iterdir()
-            if d.is_dir() and (d / "index.faiss").exists()
-        ]
+        kbs = []
+        for d in sorted(settings.vector_db_dir.iterdir()):
+            idx_file = d / "index.faiss"
+            if d.is_dir() and idx_file.exists():
+                try:
+                    n = faiss.read_index(str(idx_file)).ntotal
+                    kbs.append({"name": d.name, "chunks": n})
+                except Exception:
+                    pass
+        return kbs
 
     async def delete_knowledge_base(self, name: str) -> bool:
         import shutil

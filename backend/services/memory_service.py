@@ -1,31 +1,21 @@
-"""Memory service — persists chat history as JSON files on Google Drive."""
+"""Memory service — persists chat history via db_service SQLite storage."""
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
-from pathlib import Path
-
-from backend.config import settings
-from backend.models.schemas import Message, Role
+from backend.services.db_service import db_service
 
 logger = logging.getLogger(__name__)
 
 
-def _chat_file(chat_id: str) -> Path:
-    return settings.chat_history_dir / f"{chat_id}.json"
-
-
 class MemoryService:
-    """Stores each conversation as a JSON array of {role, content} objects."""
+    """Delegates to db_service for SQLite persistence."""
 
     async def load(self, chat_id: str) -> list[dict] | None:
-        path = _chat_file(chat_id)
-        if not path.exists():
+        chat = db_service.load_chat(chat_id)
+        if not chat:
             return None
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, lambda: json.loads(path.read_text()))
+        return chat["messages"]
 
     async def append(
         self,
@@ -33,33 +23,29 @@ class MemoryService:
         user_message: str,
         assistant_message: str,
     ) -> None:
-        """Add a user+assistant turn to the chat file, creating it if needed."""
-        existing = await self.load(chat_id) or []
-        existing.append({"role": Role.USER, "content": user_message})
-        existing.append({"role": Role.ASSISTANT, "content": assistant_message})
+        """Add user+assistant turn to the database, auto-generating title if needed."""
+        chat = db_service.load_chat(chat_id)
+        existing = chat["messages"] if chat else []
+        existing.append({"role": "user", "content": user_message})
+        existing.append({"role": "assistant", "content": assistant_message})
 
-        path = _chat_file(chat_id)
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
-            None,
-            lambda: path.write_text(json.dumps(existing, indent=2, default=str)),
-        )
-        logger.debug("Chat '%s' saved (%d turns).", chat_id, len(existing) // 2)
+        # Determine title
+        title = chat["title"] if chat else "New Chat"
+        if not chat or title == "New Chat":
+            first_user = next((m for m in existing if m["role"] == "user"), None)
+            if first_user:
+                title = first_user["content"][:55]
+                if len(first_user["content"]) > 55:
+                    title += "…"
+
+        db_service.save_chat(chat_id, title, existing)
 
     async def delete(self, chat_id: str) -> bool:
-        path = _chat_file(chat_id)
-        if not path.exists():
-            return False
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, path.unlink)
-        logger.info("Chat '%s' deleted.", chat_id)
-        return True
+        return db_service.delete_chat(chat_id)
 
     async def list_chats(self) -> list[str]:
-        """Return all chat IDs that have persisted history."""
-        if not settings.chat_history_dir.exists():
-            return []
-        return [p.stem for p in settings.chat_history_dir.glob("*.json")]
+        """Return list of all chat IDs."""
+        return [c["id"] for c in db_service.list_chats()]
 
 
 memory_service = MemoryService()

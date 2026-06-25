@@ -80,6 +80,14 @@ class Settings(BaseSettings):
     def settings_dir(self) -> Path:
         return self.storage_root / "Settings"
 
+    @property
+    def database_dir(self) -> Path:
+        return self.storage_root / "database"
+
+    @property
+    def database_path(self) -> Path:
+        return self.database_dir / "assistant.db"
+
     def ensure_dirs(self) -> None:
         """Create every storage directory if it does not already exist."""
         for directory in (
@@ -88,6 +96,7 @@ class Settings(BaseSettings):
             self.vector_db_dir,
             self.uploads_dir,
             self.settings_dir,
+            self.database_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
 

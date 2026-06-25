@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 
 def create_app() -> FastAPI:
     settings.ensure_dirs()
+    from backend.services.db_service import db_service
+    db_service.init_db()
 
     app = FastAPI(
         title=settings.APP_NAME,
@@ -43,9 +45,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
-    app.include_router(rag.router, prefix="/api/rag", tags=["rag"])
-    app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
+    app.include_router(chat.router, prefix="", tags=["chat"])
+    app.include_router(rag.router, prefix="", tags=["rag"])
+    app.include_router(settings_router.router, prefix="/settings", tags=["settings"])
 
     @app.get("/health", response_model=HealthResponse, tags=["meta"])
     async def health() -> HealthResponse:

@@ -1,104 +1,75 @@
-"""Model service — loads Qwythos-9B and exposes generate / stream methods.
-
-On Colab the model is loaded once at startup and cached in GPU RAM.
-Locally (no GPU) the service stays in an unloaded state so the rest of the
-app can still start and the health endpoint can report model_loaded=False.
-"""
+"""Model service — acts as a proxy client to the remote Colab GPU inference server."""
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import AsyncGenerator
 
+import httpx
+
 from backend.config import settings
 from backend.models.schemas import Message
+from backend.services.db_service import db_service
 
 logger = logging.getLogger(__name__)
 
-_SYSTEM_PROMPT = (
-    "You are a helpful, concise, and accurate personal AI assistant. "
-    "Answer the user's question directly. If you don't know, say so."
-)
-
 
 class ModelService:
-    """Singleton wrapper around the HuggingFace pipeline."""
+    """Singleton wrapper that proxies LLM inference to Colab."""
 
-    def __init__(self) -> None:
-        self._model = None
-        self._tokenizer = None
-        self.is_loaded: bool = False
+    @property
+    def is_loaded(self) -> bool:
+        """Query remote Colab /health to check if model is loaded and online."""
+        colab_url = db_service.get_setting("colab_url")
+        if not colab_url:
+            logger.warning("Colab Tunnel URL is not configured.")
+            return False
 
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
+        try:
+            # Use synchronous HTTP GET with a short timeout to check health
+            r = httpx.get(f"{colab_url}/health", timeout=1.5)
+            if r.status_code == 200:
+                data = r.json()
+                return bool(data.get("model_loaded"))
+        except Exception as exc:
+            logger.debug("Failed to connect to Colab at %s: %s", colab_url, exc)
+        return False
 
     def load(self) -> None:
-        """Download (if needed) and load the model into GPU/CPU memory.
-
-        Called once from the Colab notebook after mounting Drive.
-        Safe to call multiple times — subsequent calls are no-ops.
-        """
-        if self.is_loaded:
-            logger.info("Model already loaded — skipping.")
-            return
-
-        logger.info("Loading model '%s' …", settings.MODEL_NAME)
-        try:
-            import torch
-            from transformers import AutoModelForCausalLM, AutoTokenizer
-
-            cache_dir = str(settings.models_dir)
-            self._tokenizer = AutoTokenizer.from_pretrained(
-                settings.MODEL_NAME,
-                cache_dir=cache_dir,
-                trust_remote_code=True,
-            )
-            self._model = AutoModelForCausalLM.from_pretrained(
-                settings.MODEL_NAME,
-                cache_dir=cache_dir,
-                torch_dtype=torch.float16,
-                device_map="auto",
-                trust_remote_code=True,
-            )
-            self._model.eval()
-            self.is_loaded = True
-            logger.info("Model loaded successfully.")
-        except Exception as exc:
-            logger.error("Failed to load model: %s", exc)
-            raise
+        """No-op on local PC backend (only loads model on Colab)."""
+        logger.info("Local backend load() is a no-op — model runs on Colab.")
 
     # ------------------------------------------------------------------
-    # Prompt building
+    # Message building
     # ------------------------------------------------------------------
 
-    def _build_prompt(
+    def _build_messages(
         self,
         message: str,
         history: list[Message],
         context_chunks: list,
-    ) -> str:
-        parts: list[str] = [f"<|system|>\n{_SYSTEM_PROMPT}"]
+    ) -> list[dict[str, str]]:
+        sys_content = (
+            "You are a helpful, concise, and accurate personal AI assistant. "
+            "Answer the user's question directly. If you don't know, say so."
+        )
 
         if context_chunks:
             context_text = "\n\n".join(
                 f"[Source: {c.source}]\n{c.text}" for c in context_chunks
             )
-            parts.append(
-                f"<|context|>\nUse the following retrieved context to answer:\n{context_text}"
-            )
+            sys_content += f"\n\nRelevant context retrieved from your documents:\n\n{context_text}"
 
+        msgs = [{"role": "system", "content": sys_content}]
         for turn in history:
-            tag = "<|user|>" if turn.role == "user" else "<|assistant|>"
-            parts.append(f"{tag}\n{turn.content}")
-
-        parts.append(f"<|user|>\n{message}")
-        parts.append("<|assistant|>")
-        return "\n".join(parts)
+            msgs.append({"role": turn.role.value, "content": turn.content})
+        msgs.append({"role": "user", "content": message})
+        return msgs
 
     # ------------------------------------------------------------------
-    # Inference
+    # Inference Proxy
     # ------------------------------------------------------------------
 
     async def generate(
@@ -110,40 +81,44 @@ class ModelService:
         temperature: float,
         top_p: float,
     ) -> str:
-        """Non-streaming full response. Runs the blocking call in a thread pool."""
-        if not self.is_loaded:
-            raise RuntimeError("Model is not loaded.")
+        """Proxy non-streaming completion to remote Colab server."""
+        colab_url = db_service.get_setting("colab_url")
+        if not colab_url:
+            raise RuntimeError("Colab Tunnel URL is not configured in Settings.")
 
-        prompt = self._build_prompt(message, history, context_chunks)
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None,
-            lambda: self._run_inference(prompt, max_new_tokens, temperature, top_p),
-        )
-        return result
+        messages = self._build_messages(message, history, context_chunks)
+        payload = {
+            "messages": messages,
+            "max_tokens": max_new_tokens,
+            "temperature": temperature,
+            "top_p": top_p,
+        }
 
-    def _run_inference(
-        self,
-        prompt: str,
-        max_new_tokens: int,
-        temperature: float,
-        top_p: float,
-    ) -> str:
-        import torch
-
-        inputs = self._tokenizer(prompt, return_tensors="pt").to(self._model.device)
-        with torch.no_grad():
-            output_ids = self._model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                do_sample=temperature > 0,
-                pad_token_id=self._tokenizer.eos_token_id,
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            r = await client.post(
+                f"{colab_url}/chat",
+                json=payload,
+                headers={"Content-Type": "application/json"},
             )
-        # Decode only newly generated tokens
-        new_tokens = output_ids[0][inputs["input_ids"].shape[-1]:]
-        return self._tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+            if r.status_code != 200:
+                raise RuntimeError(f"Colab error {r.status_code}: {r.text}")
+
+            # Non-streaming endpoint returns tokens from SSE stream or full JSON depending on config.
+            # We parse standard SSE format even for non-streaming to be safe, or just collect tokens.
+            full_reply = ""
+            # Parse response chunks line by line
+            for line in r.text.split("\n"):
+                line = line.strip()
+                if line.startswith("data: "):
+                    data_str = line[6:]
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        data_json = json.loads(data_str)
+                        full_reply += data_json.get("token", "")
+                    except Exception:
+                        pass
+            return full_reply.strip()
 
     async def stream(
         self,
@@ -154,47 +129,52 @@ class ModelService:
         temperature: float,
         top_p: float,
     ) -> AsyncGenerator[str, None]:
-        """Yield individual tokens using HuggingFace TextIteratorStreamer."""
-        if not self.is_loaded:
-            raise RuntimeError("Model is not loaded.")
+        """Proxy streaming tokens from Colab to local client."""
+        colab_url = db_service.get_setting("colab_url")
+        if not colab_url:
+            raise RuntimeError("Colab Tunnel URL is not configured in Settings.")
 
-        import threading
-
-        import torch
-        from transformers import TextIteratorStreamer
-
-        prompt = self._build_prompt(message, history, context_chunks)
-        inputs = self._tokenizer(prompt, return_tensors="pt").to(self._model.device)
-
-        streamer = TextIteratorStreamer(
-            self._tokenizer,
-            skip_prompt=True,
-            skip_special_tokens=True,
-        )
-
-        gen_kwargs = {
-            **inputs,
-            "max_new_tokens": max_new_tokens,
+        messages = self._build_messages(message, history, context_chunks)
+        payload = {
+            "messages": messages,
+            "max_tokens": max_new_tokens,
             "temperature": temperature,
             "top_p": top_p,
-            "do_sample": temperature > 0,
-            "pad_token_id": self._tokenizer.eos_token_id,
-            "streamer": streamer,
         }
 
-        thread = threading.Thread(
-            target=lambda: self._model.generate(**gen_kwargs),
-            daemon=True,
-        )
-        thread.start()
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                f"{colab_url}/chat",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+            ) as response:
+                if response.status_code != 200:
+                    err_detail = await response.aread()
+                    raise RuntimeError(
+                        f"Colab returned error {response.status_code}: "
+                        f"{err_detail.decode('utf-8', errors='replace')}"
+                    )
 
-        loop = asyncio.get_event_loop()
-        for token_text in streamer:
-            yield token_text
-            # Yield control so the event loop can process other coroutines
-            await asyncio.sleep(0)
-
-        thread.join()
+                buffer = ""
+                async for chunk in response.aiter_text():
+                    buffer += chunk
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if not line:
+                            continue
+                        if line.startswith("data: "):
+                            data_str = line[6:]
+                            if data_str == "[DONE]":
+                                break
+                            try:
+                                data_json = json.loads(data_str)
+                                token = data_json.get("token", "")
+                                if token:
+                                    yield token
+                            except Exception:
+                                pass
 
 
 model_service = ModelService()

@@ -292,7 +292,7 @@
       transition: max-height 0.3s ease, padding 0.3s;
       flex-shrink: 0;
     }
-    #settings-panel.open { max-height: 120px; }
+    #settings-panel.open { max-height: 220px; }
 
     #settings-inner {
       display: flex; align-items: center; gap: 0.6rem;
@@ -730,11 +730,19 @@
 
   <!-- Settings panel -->
   <div id="settings-panel">
-    <div id="settings-inner">
-      <label for="api-url-input">Cloudflare URL</label>
-      <input id="api-url-input" type="text" placeholder="https://xxx.trycloudflare.com" spellcheck="false" />
-      <button class="btn btn-primary" onclick="connect()">Connect</button>
-      <button class="btn btn-ghost" onclick="disconnect()">Disconnect</button>
+    <div id="settings-inner" style="display: flex; flex-direction: column; gap: 0.6rem; align-items: stretch; padding: 1rem 1.5rem;">
+      <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+        <label for="api-url-input" style="width: 100px; font-size: 0.78rem; color: var(--text-dim);">Backend URL:</label>
+        <input id="api-url-input" type="text" placeholder="http://localhost:8000" spellcheck="false" style="flex: 1; min-width: 220px;" />
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+        <label for="colab-url-input" style="width: 100px; font-size: 0.78rem; color: var(--text-dim);">Colab Tunnel:</label>
+        <input id="colab-url-input" type="text" placeholder="https://xxx.trycloudflare.com" spellcheck="false" style="flex: 1; min-width: 220px; background: var(--input-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); padding: 0.4rem 0.7rem; font-family: var(--font-mono); font-size: 0.76rem;" />
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.4rem;">
+        <button class="btn btn-primary" onclick="connect()">Connect & Save</button>
+        <button class="btn btn-ghost" onclick="disconnect()">Disconnect</button>
+      </div>
     </div>
   </div>
 
@@ -817,7 +825,7 @@ marked.setOptions({
 
 // ── App State ──────────────────────────────────────────────────────────
 const S = {
-  apiBase    : localStorage.getItem('apiBase') || '',
+  apiBase    : localStorage.getItem('apiBase') || 'http://localhost:8000',
   chatId     : null,
   messages   : [],    // [{role, content, timestamp, ragUsed?}]
   chats      : [],    // summary list from /chats
@@ -836,6 +844,7 @@ const el = {
   welcome      : $('welcome'),
   settingsPanel: $('settings-panel'),
   apiInput     : $('api-url-input'),
+  colabInput   : $('colab-url-input'),
   statusDot    : $('status-dot'),
   statusText   : $('status-text'),
   topbarTitle  : $('topbar-title'),
@@ -860,10 +869,24 @@ function toast(msg, type = '', ms = 3500) {
 
 // ── Init ───────────────────────────────────────────────────────────────
 async function init() {
-  if (S.apiBase) {
-    el.apiInput.value = S.apiBase;
-    await connect(true);
+  if (!S.apiBase) {
+    S.apiBase = 'http://localhost:8000';
+    localStorage.setItem('apiBase', S.apiBase);
   }
+  el.apiInput.value = S.apiBase;
+
+  // Try fetching current settings to pre-fill Colab Tunnel URL
+  try {
+    const r = await fetch(S.apiBase + '/settings', { signal: AbortSignal.timeout(2000) });
+    if (r.ok) {
+      const data = await r.json();
+      if (data.colab_url) {
+        el.colabInput.value = data.colab_url;
+      }
+    }
+  } catch (_) {}
+
+  await connect(true);
 }
 
 // ── Sidebar toggle ─────────────────────────────────────────────────────
@@ -881,13 +904,28 @@ function toggleSettings() {
 
 // ── Connect / Disconnect ───────────────────────────────────────────────
 async function connect(silent = false) {
-  const raw = el.apiInput.value.trim();
-  if (!raw) { toast('Paste your Cloudflare URL first.', 'error'); toggleSettings(); return; }
+  const raw = el.apiInput.value.trim() || 'http://localhost:8000';
   S.apiBase = raw.replace(/\/$/, '');
   localStorage.setItem('apiBase', S.apiBase);
+  el.apiInput.value = S.apiBase;
+
+  const colabUrl = el.colabInput.value.trim();
 
   setStatus('loading', 'Connecting…');
   try {
+    // 1. Post settings to local backend to save the Colab URL
+    try {
+      await fetch(S.apiBase + '/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ colab_url: colabUrl }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch (err) {
+      console.warn('Failed to save Colab URL to backend:', err.message);
+    }
+
+    // 2. Fetch health from local backend
     const r    = await fetch(S.apiBase + '/health', { signal: AbortSignal.timeout(8000) });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
@@ -901,22 +939,29 @@ async function connect(silent = false) {
       el.sendBtn.disabled = true;
     }
 
-    if (!silent) toast('Connected! Model ' + (data.model_loaded ? 'ready ✓' : 'still loading…'), data.model_loaded ? 'success' : '');
+    if (!silent) {
+      if (data.model_loaded) {
+        toast('Connected! Model ready ✓', 'success');
+      } else {
+        toast('Connected! local backend is up, but Colab model is still loading…');
+      }
+    }
     el.settingsPanel.classList.remove('open');
 
     await Promise.all([fetchKbs(), fetchChats()]);
   } catch (e) {
     setStatus('', 'Disconnected');
     S.isConnected = false;
-    if (!silent) toast('Cannot reach API: ' + e.message, 'error');
+    if (!silent) toast('Cannot reach local API: ' + e.message, 'error');
   }
 }
 
 function disconnect() {
-  S.apiBase = '';
+  S.apiBase = 'http://localhost:8000';
   S.isConnected = false;
   localStorage.removeItem('apiBase');
-  el.apiInput.value = '';
+  el.apiInput.value = S.apiBase;
+  el.colabInput.value = '';
   setStatus('', 'Disconnected');
   el.sendBtn.disabled = true;
   toast('Disconnected.');
