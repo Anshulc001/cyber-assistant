@@ -70,21 +70,32 @@ CELL2 = """\
 # ── Cell 2: Install All Dependencies ──────────────────────────────────────
 import os, subprocess, sys
 
-def _pip(*pkgs):
-    extra_flags = ['--no-cache-dir']
+# ── Cell 2: Install All Dependencies ──────────────────────────────────────
+import os, subprocess, sys
+import torch
+
+def _pip(*pkgs, extra_flags=None):
+    flags = ['--no-cache-dir']
+    if extra_flags:
+        flags.extend(extra_flags)
     subprocess.check_call(
-        [sys.executable, '-m', 'pip', 'install', '-q', '--upgrade', *pkgs, *extra_flags],
+        [sys.executable, '-m', 'pip', 'install', '-q', '--upgrade', *pkgs, *flags],
         stdout=subprocess.DEVNULL,
     )
 
-print('⏳  Installing llama-cpp-python with CUDA (compiles ~3 min) …')
-os.environ['CMAKE_ARGS']     = '-DGGML_CUDA=on'
-os.environ['FORCE_CMAKE']    = '1'
-subprocess.check_call([
-    sys.executable, '-m', 'pip', 'install',
-    'llama-cpp-python', '-q',
-    '--force-reinstall', '--no-cache-dir',
-])
+print('⏳  Detecting CUDA version and installing pre-built llama-cpp-python wheel …')
+cuda_version = torch.version.cuda
+if cuda_version:
+    cuda_tag = 'cu' + cuda_version.replace('.', '')[:3]
+else:
+    cuda_tag = 'cpu'
+
+# Fallback environment flags if compiling is required
+os.environ['CMAKE_ARGS']  = '-DGGML_CUDA=on'
+os.environ['FORCE_CMAKE'] = '1'
+
+_pip('llama-cpp-python',
+     extra_flags=['--force-reinstall', '--extra-index-url', f'https://abetlen.github.io/llama-cpp-python/whl/{cuda_tag}'])
 
 print('⏳  Installing HuggingFace hub & Server libs …')
 _pip('huggingface_hub>=0.23', 'fastapi>=0.110', 'uvicorn[standard]>=0.29')
