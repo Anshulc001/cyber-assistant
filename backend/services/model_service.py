@@ -121,26 +121,26 @@ class ModelService:
 
         messages = self._build_messages(message, history, context_chunks, image)
         payload = {
+            "model": "qwythos",
             "messages": messages,
             "max_tokens": max_new_tokens,
             "temperature": temperature,
             "top_p": top_p,
             "repeat_penalty": repeat_penalty,
+            "stream": False,
         }
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             r = await client.post(
-                f"{colab_url}/chat",
+                f"{colab_url}/v1/chat/completions",
                 json=payload,
                 headers={"Content-Type": "application/json"},
             )
             if r.status_code != 200:
                 raise RuntimeError(f"Colab error {r.status_code}: {r.text}")
 
-            # Non-streaming endpoint returns tokens from SSE stream or full JSON depending on config.
-            # We parse standard SSE format even for non-streaming to be safe, or just collect tokens.
+            # Parse standard SSE format or raw JSON
             full_reply = ""
-            # Parse response chunks line by line
             for line in r.text.split("\n"):
                 line = line.strip()
                 if line.startswith("data: "):
@@ -149,7 +149,13 @@ class ModelService:
                         break
                     try:
                         data_json = json.loads(data_str)
-                        full_reply += data_json.get("token", "")
+                        token = ""
+                        if "token" in data_json:
+                            token = data_json["token"]
+                        elif "choices" in data_json and len(data_json["choices"]) > 0:
+                            delta = data_json["choices"][0].get("delta", {})
+                            token = delta.get("content", "")
+                        full_reply += token
                     except Exception:
                         pass
             return full_reply.strip()
@@ -172,17 +178,19 @@ class ModelService:
 
         messages = self._build_messages(message, history, context_chunks, image)
         payload = {
+            "model": "qwythos",
             "messages": messages,
             "max_tokens": max_new_tokens,
             "temperature": temperature,
             "top_p": top_p,
             "repeat_penalty": repeat_penalty,
+            "stream": True,
         }
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             async with client.stream(
                 "POST",
-                f"{colab_url}/chat",
+                f"{colab_url}/v1/chat/completions",
                 json=payload,
                 headers={"Content-Type": "application/json"},
             ) as response:
@@ -207,7 +215,12 @@ class ModelService:
                                 break
                             try:
                                 data_json = json.loads(data_str)
-                                token = data_json.get("token", "")
+                                token = ""
+                                if "token" in data_json:
+                                    token = data_json["token"]
+                                elif "choices" in data_json and len(data_json["choices"]) > 0:
+                                    delta = data_json["choices"][0].get("delta", {})
+                                    token = delta.get("content", "")
                                 if token:
                                     yield token
                             except Exception:
