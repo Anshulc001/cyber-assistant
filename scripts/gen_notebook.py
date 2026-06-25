@@ -139,7 +139,7 @@ else:
 subprocess.run(pip_cmd, check=True)
 
 print('⏳  Installing HuggingFace hub & Server libs …')
-_pip('huggingface_hub>=0.23', 'fastapi>=0.110', 'uvicorn[standard]>=0.29')
+_pip('huggingface_hub>=0.23', 'fastapi>=0.110', 'uvicorn[standard]>=0.29', 'pillow', 'numpy')
 
 print('⏳  Installing cloudflared …')
 subprocess.run([
@@ -169,11 +169,14 @@ GGUF_FILE    = 'Qwythos-9B-Claude-Mythos-5-1M-MTP-Q6_K.gguf'
 MODEL_LABEL  = 'Qwythos-9B-Claude-Mythos-5-1M  (Q6_K GGUF, 7.09 GiB)'
 MODEL_PATH   = MODELS_DIR / GGUF_FILE
 
+MMPROJ_FILE  = 'mmproj-Qwythos-9B-Claude-Mythos-5-1M-F16.gguf'
+MMPROJ_PATH  = MODELS_DIR / MMPROJ_FILE
+
 if 'llm' in globals() and globals()['llm'] is not None:
     print('Model already in memory — skipping reload.')
     print(f'  {MODEL_LABEL}')
 else:
-    # ── 1. Download (skipped if cached locally) ──────────────────────────
+    # ── 1. Download Model (skipped if cached locally) ────────────────────
     if MODEL_PATH.exists():
         print(f'Using cached GGUF: {MODEL_PATH}')
     else:
@@ -188,13 +191,30 @@ else:
         )
         print(f'  Saved to: {MODEL_PATH}')
 
-    # ── 2. Load into GPU via llama-cpp ────────────────────────────────────
+    # ── 2. Download Vision Projector (skipped if cached locally) ─────────
+    if MMPROJ_PATH.exists():
+        print(f'Using cached MMPROJ: {MMPROJ_PATH}')
+    else:
+        print(f'Downloading {MMPROJ_FILE} from HuggingFace …')
+        hf_hub_download(
+            repo_id=GGUF_REPO,
+            filename=MMPROJ_FILE,
+            local_dir=str(MODELS_DIR),
+            local_dir_use_symlinks=False,
+        )
+        print(f'  Saved to: {MMPROJ_PATH}')
+
+    # ── 3. Load into GPU via llama-cpp with Llava15ChatHandler ────────────
     if torch.cuda.is_available():
         print(f'GPU: {torch.cuda.get_device_name(0)}')
 
-    print('Loading model into VRAM …')
+    print('Loading model and CLIP vision projector into VRAM …')
+    from llama_cpp.llama_chat_format import Llava15ChatHandler
+    chat_handler = Llava15ChatHandler(clip_model_path=str(MMPROJ_PATH))
+
     llm = Llama(
         model_path=str(MODEL_PATH),
+        chat_handler=chat_handler,
         n_gpu_layers=-1,   # offload ALL layers to T4
         n_ctx=8192,        # 8 K context window
         n_batch=512,
@@ -205,7 +225,7 @@ else:
         alloc  = torch.cuda.memory_allocated() / 1e9
         reserv = torch.cuda.memory_reserved()  / 1e9
         total  = torch.cuda.get_device_properties(0).total_memory / 1e9
-        print(f'\\n✅  {MODEL_LABEL}')
+        print(f'\\n✅  {MODEL_LABEL} with CLIP vision projector loaded.')
         print(f'   GPU       : {torch.cuda.get_device_name(0)}')
         print(f'   Allocated : {alloc:.2f} GB')
         print(f'   Reserved  : {reserv:.2f} GB')
@@ -261,7 +281,7 @@ async def health():
 # ── POST /chat — streaming SSE via llama-cpp ─────────────────────────────
 import queue as _queue
 
-async def _stream_tokens(messages: list, max_tokens: int, temperature: float, top_p: float):
+async def _stream_tokens(messages: list, max_tokens: int, temperature: float, top_p: float, repeat_penalty: float):
     q    = _queue.Queue()
     DONE = object()
 
@@ -272,6 +292,7 @@ async def _stream_tokens(messages: list, max_tokens: int, temperature: float, to
                 max_tokens=max_tokens,
                 temperature=max(temperature, 1e-4),
                 top_p=top_p,
+                repeat_penalty=repeat_penalty,
                 stream=True,
             )
             for chunk in stream:
@@ -317,12 +338,13 @@ async def chat(body: dict):
             messages.append({'role': turn.get('role', 'user'), 'content': str(turn.get('content', ''))})
         messages.append({'role': 'user', 'content': msg})
 
-    max_tokens  = int(body.get('max_tokens', 1024))
-    temperature = float(body.get('temperature', 0.7))
-    top_p       = float(body.get('top_p', 0.9))
+    max_tokens     = int(body.get('max_tokens', 1024))
+    temperature    = float(body.get('temperature', 0.7))
+    top_p          = float(body.get('top_p', 0.9))
+    repeat_penalty = float(body.get('repeat_penalty', 1.1))
 
     return StreamingResponse(
-        _stream_tokens(messages, max_tokens, temperature, top_p),
+        _stream_tokens(messages, max_tokens, temperature, top_p, repeat_penalty),
         media_type='text/event-stream',
         headers={
             'Cache-Control'    : 'no-cache',

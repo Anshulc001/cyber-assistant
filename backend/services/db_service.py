@@ -63,9 +63,17 @@ class DBService:
                     timestamp TEXT,
                     rag_used INTEGER DEFAULT 0,
                     sources TEXT,
+                    image TEXT,
                     FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE
                 );
             """)
+            
+            # Database Migration: add 'image' column to 'messages' if it's missing from previous runs
+            try:
+                conn.execute("ALTER TABLE messages ADD COLUMN image TEXT;")
+            except sqlite3.OperationalError:
+                pass  # Already exists
+                
             conn.commit()
 
     # ------------------------------------------------------------------
@@ -126,7 +134,7 @@ class DBService:
                 return None
 
             msg_cursor = conn.execute(
-                "SELECT role, content, timestamp, rag_used, sources FROM messages WHERE chat_id = ? ORDER BY timestamp ASC;",
+                "SELECT role, content, timestamp, rag_used, sources, image FROM messages WHERE chat_id = ? ORDER BY timestamp ASC;",
                 (chat_id,),
             )
             messages = []
@@ -137,12 +145,14 @@ class DBService:
                         sources = json.loads(mr["sources"])
                     except Exception:
                         pass
+                img_val = mr["image"] if "image" in mr.keys() else None
                 messages.append({
                     "role": mr["role"],
                     "content": mr["content"],
                     "timestamp": mr["timestamp"],
                     "ragUsed": bool(mr["rag_used"]),
                     "sources": sources,
+                    "image": img_val,
                 })
 
             return {
@@ -178,13 +188,14 @@ class DBService:
                 ts = msg.get("timestamp") or now
                 rag_used = 1 if msg.get("ragUsed") else 0
                 sources_json = json.dumps(msg.get("sources") or [])
+                image = msg.get("image")
 
                 conn.execute(
                     """
-                    INSERT INTO messages (id, chat_id, role, content, timestamp, rag_used, sources)
-                    VALUES (?, ?, ?, ?, ?, ?, ?);
+                    INSERT INTO messages (id, chat_id, role, content, timestamp, rag_used, sources, image)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?);
                     """,
-                    (msg_id, chat_id, role, content, ts, rag_used, sources_json),
+                    (msg_id, chat_id, role, content, ts, rag_used, sources_json, image),
                 )
             conn.commit()
 

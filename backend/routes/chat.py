@@ -43,6 +43,8 @@ async def _sse_generator(
         max_new_tokens=request.max_new_tokens or settings.MAX_NEW_TOKENS,
         temperature=request.temperature or settings.TEMPERATURE,
         top_p=request.top_p or settings.TOP_P,
+        repeat_penalty=request.repeat_penalty or settings.REPEAT_PENALTY,
+        image=request.image,
     ):
         full_reply += token
         payload = json.dumps({"token": token, "chat_id": chat_id})
@@ -54,6 +56,7 @@ async def _sse_generator(
         chat_id=chat_id,
         user_message=request.message,
         assistant_message=full_reply,
+        image=request.image,
     )
     yield "data: [DONE]\n\n"
 
@@ -99,6 +102,8 @@ async def chat(request: ChatRequest):
         max_new_tokens=request.max_new_tokens or settings.MAX_NEW_TOKENS,
         temperature=request.temperature or settings.TEMPERATURE,
         top_p=request.top_p or settings.TOP_P,
+        repeat_penalty=request.repeat_penalty or settings.REPEAT_PENALTY,
+        image=request.image,
     )
 
     from backend.services.memory_service import memory_service
@@ -106,6 +111,7 @@ async def chat(request: ChatRequest):
         chat_id=chat_id,
         user_message=request.message,
         assistant_message=reply,
+        image=request.image,
     )
 
     return ChatResponse(

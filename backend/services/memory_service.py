@@ -22,11 +22,12 @@ class MemoryService:
         chat_id: str,
         user_message: str,
         assistant_message: str,
+        image: str | None = None,
     ) -> None:
         """Add user+assistant turn to the database, auto-generating title if needed."""
         chat = db_service.load_chat(chat_id)
         existing = chat["messages"] if chat else []
-        existing.append({"role": "user", "content": user_message})
+        existing.append({"role": "user", "content": user_message, "image": image})
         existing.append({"role": "assistant", "content": assistant_message})
 
         # Determine title

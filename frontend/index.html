@@ -678,6 +678,77 @@
     #message-input:focus { outline: none; border-color: var(--accent); }
     #message-input::placeholder { color: var(--text-muted); }
 
+    #attach-img-btn {
+      width: 42px; height: 42px;
+      background: var(--input-bg);
+      border: 1px solid var(--border); border-radius: 50%;
+      color: var(--text-dim); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s; flex-shrink: 0;
+      font-size: 1.1rem;
+    }
+    #attach-img-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(129, 140, 248, 0.05); }
+
+    /* Image preview panel */
+    #image-preview-panel {
+      display: none;
+      padding: 0.5rem;
+      background: var(--bg-card);
+      margin-bottom: 0.5rem;
+      border-radius: var(--radius-md);
+      position: relative;
+    }
+    .img-preview-container {
+      position: relative;
+      display: inline-block;
+      width: 80px;
+      height: 80px;
+      border-radius: var(--radius-sm);
+      overflow: visible;
+      border: 1px solid var(--border);
+      background: var(--input-bg);
+    }
+    .img-preview-container img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: var(--radius-sm);
+    }
+    #remove-img-btn {
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      width: 20px;
+      height: 20px;
+      background: var(--danger);
+      border: none;
+      border-radius: 50%;
+      color: #fff;
+      font-weight: bold;
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    #remove-img-btn:hover {
+      background: #ef4444;
+    }
+
+    .msg-image {
+      max-width: 100%;
+      max-height: 250px;
+      border-radius: var(--radius-sm);
+      display: block;
+      margin-bottom: 0.5rem;
+      border: 1px solid var(--border);
+      object-fit: contain;
+    }
+    .msg-image-caption {
+      margin-top: 0.5rem;
+    }
+
     #send-btn {
       width: 42px; height: 42px;
       background: var(--accent);
@@ -841,7 +912,17 @@
       <button class="btn btn-ghost" onclick="toggleUploadPanel()">Cancel</button>
     </div>
 
+    <!-- Image preview panel -->
+    <div id="image-preview-panel">
+      <div class="img-preview-container">
+        <img id="image-preview" src="" alt="Preview" />
+        <button id="remove-img-btn" onclick="clearSelectedImage()">×</button>
+      </div>
+    </div>
+
     <div id="input-form">
+      <button id="attach-img-btn" onclick="triggerImageSelect()" title="Attach image">🖼️</button>
+      <input type="file" id="image-file-input" accept="image/*" style="display: none;" onchange="handleImageSelect(event)" />
       <textarea
         id="message-input"
         rows="1"
@@ -870,42 +951,48 @@ marked.setOptions({
     return hljs.highlightAuto(code).value;
   },
   breaks: true,
-  gfm: true,
+  gfm:true,
 });
 
 // ── App State ──────────────────────────────────────────────────────────
 const S = {
-  apiBase    : localStorage.getItem('apiBase') || 'http://localhost:8000',
-  chatId     : null,
-  messages   : [],    // [{role, content, timestamp, ragUsed?}]
-  chats      : [],    // summary list from /chats
-  kbs        : [],    // [{name, chunks}]
-  isStreaming: false,
-  isConnected: false,
+  apiBase      : localStorage.getItem('apiBase') || 'http://localhost:8000',
+  chatId       : null,
+  messages     : [],    // [{role, content, timestamp, ragUsed?}]
+  chats        : [],    // summary list from /chats
+  kbs          : [],    // [{name, chunks}]
+  isStreaming  : false,
+  isConnected  : false,
+  selectedImage: null,  // base64 data url
 };
 
 // ── DOM shortcuts ──────────────────────────────────────────────────────
 const $  = id => document.getElementById(id);
 const el = {
-  sidebar      : $('sidebar'),
-  chatList     : $('chat-list'),
-  chatListEmpty: $('chat-list-empty'),
-  msgWrap      : $('messages-wrap'),
-  welcome      : $('welcome'),
-  settingsPanel: $('settings-panel'),
-  apiInput     : $('api-url-input'),
-  colabInput   : $('colab-url-input'),
-  statusDot    : $('status-dot'),
-  statusText   : $('status-text'),
-  topbarTitle  : $('topbar-title'),
-  ragToggle    : $('rag-toggle'),
-  kbSelect     : $('kb-select'),
-  uploadPanel  : $('upload-panel'),
-  pdfFileInput : $('pdf-file-input'),
-  pdfFileLabel : $('pdf-file-label'),
-  msgInput     : $('message-input'),
-  sendBtn      : $('send-btn'),
-  toast        : $('toast'),
+  sidebar          : $('sidebar'),
+  chatList         : $('chat-list'),
+  chatListEmpty    : $('chat-list-empty'),
+  msgWrap          : $('messages-wrap'),
+  welcome          : $('welcome'),
+  settingsPanel    : $('settings-panel'),
+  apiInput         : $('api-url-input'),
+  colabInput       : $('colab-url-input'),
+  statusDot        : $('status-dot'),
+  statusText       : $('status-text'),
+  topbarTitle      : $('topbar-title'),
+  ragToggle        : $('rag-toggle'),
+  kbSelect         : $('kb-select'),
+  uploadPanel      : $('upload-panel'),
+  pdfFileInput     : $('pdf-file-input'),
+  pdfFileLabel     : $('pdf-file-label'),
+  msgInput         : $('message-input'),
+  sendBtn          : $('send-btn'),
+  toast            : $('toast'),
+  attachImgBtn     : $('attach-img-btn'),
+  imageFileInput   : $('image-file-input'),
+  imagePreviewPanel: $('image-preview-panel'),
+  imagePreview     : $('image-preview'),
+  removeImgBtn     : $('remove-img-btn'),
 };
 
 // ── Toast ──────────────────────────────────────────────────────────────
@@ -915,6 +1002,42 @@ function toast(msg, type = '', ms = 3500) {
   el.toast.className   = 'show' + (type ? ' ' + type : '');
   clearTimeout(_toastTimer);
   _toastTimer = setTimeout(() => { el.toast.className = ''; }, ms);
+}
+
+// ── Image Attachment Handling ──────────────────────────────────────────
+function triggerImageSelect() {
+  el.imageFileInput.click();
+}
+
+function handleImageSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  if (!file.type.startsWith('image/')) {
+    toast('Please select an image file.', 'error');
+    return;
+  }
+
+  // Limit size to 5MB
+  if (file.size > 5 * 1024 * 1024) {
+    toast('Image must be under 5MB.', 'error');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    S.selectedImage = e.target.result; // Data URL base64
+    el.imagePreview.src = S.selectedImage;
+    el.imagePreviewPanel.style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearSelectedImage() {
+  S.selectedImage = null;
+  el.imageFileInput.value = '';
+  el.imagePreview.src = '';
+  el.imagePreviewPanel.style.display = 'none';
 }
 
 // ── Init ───────────────────────────────────────────────────────────────
@@ -1221,12 +1344,12 @@ function renderAllMessages() {
   el.msgWrap.innerHTML = '';
   if (!S.messages.length) { el.msgWrap.appendChild(el.welcome); el.welcome.style.display = 'flex'; return; }
   el.welcome.style.display = 'none';
-  S.messages.forEach(m => appendMessage(m.role, m.content, m.ragUsed));
+  S.messages.forEach(m => appendMessage(m.role, m.content, m.ragUsed, m.image));
   scrollToBottom();
 }
 
 // ── Append a single message bubble ────────────────────────────────────
-function appendMessage(role, text, ragUsed = false) {
+function appendMessage(role, text, ragUsed = false, image = null) {
   if (el.welcome.isConnected) el.welcome.style.display = 'none';
 
   const row  = document.createElement('div');
@@ -1255,7 +1378,21 @@ function appendMessage(role, text, ragUsed = false) {
       wrap.appendChild(bubble);
     }
   } else {
-    bubble.textContent = text;
+    if (image) {
+      const img = document.createElement('img');
+      img.className = 'msg-image';
+      img.src = image;
+      bubble.appendChild(img);
+      
+      if (text) {
+        const cap = document.createElement('div');
+        cap.className = 'msg-image-caption';
+        cap.textContent = text;
+        bubble.appendChild(cap);
+      }
+    } else {
+      bubble.textContent = text;
+    }
     wrap.appendChild(bubble);
   }
 
@@ -1411,20 +1548,22 @@ function scrollToBottom() {
 // ── Send Message ───────────────────────────────────────────────────────
 async function sendMessage() {
   const text = el.msgInput.value.trim();
-  if (!text || S.isStreaming || !S.isConnected) return;
+  if ((!text && !S.selectedImage) || S.isStreaming || !S.isConnected) return;
 
   // Ensure we have a chat ID
   if (!S.chatId) {
     S.chatId = crypto.randomUUID();
   }
 
+  const attachedImage = S.selectedImage;
   el.msgInput.value = '';
   el.msgInput.style.height = 'auto';
+  clearSelectedImage();
 
   // Add user message
-  const userMsg = { role: 'user', content: text, timestamp: new Date().toISOString() };
+  const userMsg = { role: 'user', content: text, timestamp: new Date().toISOString(), image: attachedImage };
   S.messages.push(userMsg);
-  appendMessage('user', text);
+  appendMessage('user', text, false, attachedImage);
 
   // Streaming response
   S.isStreaming     = true;
@@ -1439,9 +1578,10 @@ async function sendMessage() {
     const payload = {
       chat_id       : S.chatId,
       message       : text,
-      history       : S.messages.slice(-20, -1).map(m => ({ role: m.role, content: m.content })),
+      history       : S.messages.slice(-20, -1).map(m => ({ role: m.role, content: m.content, image: m.image })),
       use_rag       : el.ragToggle.checked,
       knowledge_base: el.ragToggle.checked && el.kbSelect.value ? el.kbSelect.value : null,
+      image         : attachedImage,
     };
 
     const resp = await fetch(S.apiBase + '/chat', {
